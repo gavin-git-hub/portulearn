@@ -762,7 +762,9 @@ body::after{
         <label class="chk-lbl"><input type="checkbox" id="ck-scroll" checked/> 自动滚动</label>
         <label class="chk-lbl"><input type="checkbox" id="ck-pt" checked/> 葡语</label>
         <label class="chk-lbl"><input type="checkbox" id="ck-zh" checked/> 中文</label>
-        <div style="display:flex;gap:6px;margin-left:auto">
+        <div style="display:flex;gap:6px;margin-left:auto;align-items:center;">
+          <input type="file" id="inp-sub" accept=".srt,.vtt" style="display:none">
+          <label for="inp-sub" class="btn btn-ghost btn-sm" style="cursor:pointer;margin:0;padding:4px 8px;font-size:12px;" title="导入本地 SRT/VTT 字幕">📂 导入字幕</label>
           <button class="btn btn-ai btn-sm" id="btn-trans">🌐 翻译字幕</button>
           <button class="btn btn-ai btn-sm" id="btn-ai">✨ AI分析</button>
         </div>
