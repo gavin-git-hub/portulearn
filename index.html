@@ -1175,6 +1175,74 @@ async function fetchSubs(vid){
 }
 
 // ====================================================================
+// IMPORT SUBTITLES (SRT/VTT)
+// ====================================================================
+function parseLocalSub(text) {
+  const res = [];
+  const blocks = text.trim().split(/\n\s*\n/);
+  for (const b of blocks) {
+    if(b.includes('WEBVTT')) continue;
+    const lines = b.split('\n');
+    let timeLineIdx = lines.findIndex(l => l.includes('-->'));
+    if (timeLineIdx === -1) continue;
+    const timeLine = lines[timeLineIdx];
+    const ptLine = lines.slice(timeLineIdx+1).join('\n').trim();
+    
+    // Parse time: 00:01:23,400 or 01:23.400
+    const parseTime = (tStr) => {
+      const parts = tStr.trim().replace(',', '.').split(':');
+      let sec = 0;
+      if (parts.length === 3) sec = parseInt(parts[0])*3600 + parseInt(parts[1])*60 + parseFloat(parts[2]);
+      else if (parts.length === 2) sec = parseInt(parts[0])*60 + parseFloat(parts[1]);
+      return sec;
+    };
+    
+    const [startStr, endStr] = timeLine.split('-->');
+    const s = parseTime(startStr);
+    const e = parseTime(endStr);
+    if (!isNaN(s) && !isNaN(e) && ptLine) res.push({s, e, pt:ptLine});
+  }
+  return res;
+}
+
+$('inp-sub').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const text = await file.text();
+  const newSubs = parseLocalSub(text);
+  e.target.value = ''; // reset
+  
+  if(!newSubs.length) return toast('无法解析该字幕文件，请确认是 SRT/VTT 格式','er');
+  
+  const isChinese=t=>/[\u4e00-\u9fa5]/.test(t||'');
+  const isCh = newSubs.some(s=>isChinese(s.pt));
+  
+  if (S.isDemo || !S.subs.length) {
+    // Overwrite demo/empty subs
+    newSubs.forEach(s => {
+      if(isCh && isChinese(s.pt)) { s.zh = s.pt; s.pt = '---'; } // purely chinese
+    });
+    S.subs = newSubs;
+    S.isDemo = false;
+    toast('✅ 字幕导入成功','ok');
+  } else {
+    // Merge with existing real subs
+    if (isCh) {
+      let count = 0;
+      S.subs.forEach(sub => {
+        const match = newSubs.find(n => n.s < sub.e && n.e > sub.s);
+        if(match) { sub.zh = match.pt; count++; }
+      });
+      toast(`✅ 成功合并 ${count} 条中文字幕`,'ok');
+    } else {
+      S.subs = newSubs;
+      toast('✅ 葡语字幕替换成功','ok');
+    }
+  }
+  const sg=S.segs[S.segIdx];if(sg)renderSubsForSeg(sg);
+});
+
+// ====================================================================
 // AI SUBTITLE TRANSLATION
 // ====================================================================
 async function translateSubs(){
