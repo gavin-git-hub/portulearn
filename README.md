@@ -14,31 +14,29 @@
 
 ## 快速开始
 
-有两种启动方式（推荐使用一键脚本）：
-
-- 一键脚本（推荐，macOS / Linux）：
+最快：直接打开线上页面（已通过 GitHub Pages 部署）：
 
 ```bash
-# 1. 进入项目目录
-cd pt-learner
-
-# 2. 赋予脚本执行权限并运行（脚本会启动服务器并打开浏览器）
-chmod +x start.sh
-./start.sh
+open https://gavin-git-hub.github.io/portulearn/
 ```
 
-- 手动（不使用脚本时）：
+本地启动（仅用于开发或预览）：
+
+- 一键脚本（推荐）：
 
 ```bash
-cd pt-learner
-# 使用 Python 内建的 HTTP 服务器（端口与脚本相同）
-python3 -m http.server 8765 --directory .
-open http://localhost:8765
+chmod +x start.sh && ./start.sh
 ```
 
-> ⚠️ **注意**：必须通过 HTTP 服务器访问（不能使用 file:// 协议），否则 YouTube IFrame API 可能报错（例如 Error 153）。
+- 手动（备用）：
 
-脚本文件： [start.sh](start.sh) — 应该位于项目根目录；主应用文件： [index.html](index.html)。
+```bash
+python3 -m http.server 8765 --directory . && open http://localhost:8765
+```
+
+> ⚠️ **注意**：必须通过 HTTP(s) 服务器访问（不能使用 file:// 协议），否则 YouTube IFrame API 可能报错（例如 Error 153）。
+
+脚本文件： [start.sh](start.sh) — 位于项目根目录；主应用文件： [index.html](index.html)。
 
 ## 项目结构
 
