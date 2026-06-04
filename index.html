@@ -813,7 +813,7 @@ body::after{
 <div class="ai-overlay hidden" id="ai-overlay">
   <div class="ai-box">
     <div class="ai-spin"></div>
-    <div class="ai-ttl">AI 分析中...</div>
+    <div class="ai-ttl" id="ai-ttl">AI 分析中...</div>
     <div class="ai-sub" id="ai-sub">提取词汇与翻译</div>
   </div>
 </div>
@@ -911,8 +911,9 @@ function toast(msg,type='in',dur=3000){
   setTimeout(()=>el.remove(),dur);
 }
 
-function setAI(show,sub=''){
+function setAI(show, sub='', title='AI 分析中...'){
   $('ai-overlay').classList.toggle('hidden',!show);
+  if(title)$('ai-ttl').textContent=title;
   if(sub)$('ai-sub').textContent=sub;
 }
 
@@ -1139,7 +1140,7 @@ async function fetchSubs(vid){
     return null;
   }
 
-  setAI(true,'⏳ 正在获取字幕...');
+  setAI(true,'⏳ 正在获取字幕...', '系统加载中...');
   const captionInfo=await getSignedCaptionUrl();
   let subs=null;
 
