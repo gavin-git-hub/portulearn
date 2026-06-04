@@ -1215,30 +1215,28 @@ $('inp-sub').addEventListener('change', async (e) => {
   if(!newSubs.length) return toast('无法解析该字幕文件，请确认是 SRT/VTT 格式','er');
   
   const isChinese=t=>/[\u4e00-\u9fa5]/.test(t||'');
-  const isCh = newSubs.some(s=>isChinese(s.pt));
   
-  if (S.isDemo || !S.subs.length) {
-    // Overwrite demo/empty subs
-    newSubs.forEach(s => {
-      if(isCh && isChinese(s.pt)) { s.zh = s.pt; s.pt = '---'; } // purely chinese
-    });
-    S.subs = newSubs;
-    S.isDemo = false;
-    toast('✅ 字幕导入成功','ok');
-  } else {
-    // Merge with existing real subs
-    if (isCh) {
-      let count = 0;
-      S.subs.forEach(sub => {
-        const match = newSubs.find(n => n.s < sub.e && n.e > sub.s);
-        if(match) { sub.zh = match.pt; count++; }
-      });
-      toast(`✅ 成功合并 ${count} 条中文字幕`,'ok');
-    } else {
-      S.subs = newSubs;
-      toast('✅ 葡语字幕替换成功','ok');
+  // 强制替换当前字幕，以保证时间轴完全使用上传的文件
+  newSubs.forEach(s => {
+    // 尝试拆分双语字幕（假设中葡换行）
+    const lines = s.pt.split('\n');
+    if(lines.length > 1) {
+      const zhLines = lines.filter(l => isChinese(l));
+      const ptLines = lines.filter(l => !isChinese(l));
+      if(zhLines.length > 0) {
+        s.zh = zhLines.join(' ');
+        s.pt = ptLines.length ? ptLines.join(' ') : '---';
+        return;
+      }
     }
-  }
+    // 纯中文字幕
+    if(isChinese(s.pt)) { s.zh = s.pt; s.pt = '---'; }
+  });
+  
+  S.subs = newSubs;
+  S.isDemo = false;
+  toast(`✅ 成功导入并应用 ${newSubs.length} 条新时间轴`,'ok');
+  
   const sg=S.segs[S.segIdx];if(sg)renderSubsForSeg(sg);
 });
 
