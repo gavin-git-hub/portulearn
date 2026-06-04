@@ -861,6 +861,14 @@ body::after{
           <option value="en">English</option>
         </select>
       </div>
+      <div class="set-grp">
+        <label class="set-lbl">AI 模型选择</label>
+        <select id="set-model" class="set-sel">
+          <option value="gemini-3.1-pro">Gemini 3.1 Pro (更智能)</option>
+          <option value="gemini-2.0-flash-lite" selected>Gemini 2.0 Flash Lite (更快,额度多)</option>
+          <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+        </select>
+      </div>
     </div>
     <div class="modal-ftr">
       <button class="btn btn-primary" id="btn-save-cfg">保存设置</button>
@@ -883,7 +891,7 @@ const S = {
   segs:[], segIdx:0,
   subs:[], subIdx:-1,
   autoScroll:true, showPt:true, showZh:true,
-  apiKey:'', lang:'zh',
+  apiKey:'', lang:'zh', geminiModel:'gemini-2.0-flash-lite',
   materials:[], cards:[], cardIdx:0,
   raf:null, dragging:false,
 };
@@ -909,7 +917,7 @@ function setAI(show,sub=''){
 function save(){
   localStorage.setItem('pl_key',S.apiKey);
   localStorage.setItem('pl_mats',JSON.stringify(S.materials));
-  localStorage.setItem('pl_set',JSON.stringify({segLen:S.segLen,lang:S.lang,rate:S.rate}));
+  localStorage.setItem('pl_set',JSON.stringify({segLen:S.segLen,lang:S.lang,rate:S.rate,model:S.geminiModel}));
 }
 
 function load(){
@@ -924,9 +932,11 @@ function load(){
     }
     if(s.lang)S.lang=s.lang;
     if(s.rate)S.rate=s.rate;
+    if(s.model)S.geminiModel=s.model;
     $('set-seglen').value=S.segLen;
     $('set-lang').value=S.lang;
     $('set-spd').value=S.rate;
+    $('set-model').value=S.geminiModel;
   }catch{}
 }
 
@@ -1079,76 +1089,84 @@ function loadVideo(vid){
 // SUBTITLES
 // ====================================================================
 async function fetchSubs(vid){
-  let subs=null;
-  const langTags=['pt-BR','pt'];
-  const zhLangs=['zh-Hans','zh-CN','zh','zh-TW'];
-  const makeUrl=(proxy,target)=>{
-    if(!proxy)return target;
-    if(proxy==='allorigins')return `https://api.allorigins.win/raw?url=${encodeURIComponent(target)}`;
-    return `${proxy}${target}`;
-  };
-  const proxies=['','https://corsproxy.io/?','allorigins'];
+  const isChinese=t=>/[\u4e00-\u9fa5]/.test(t||'');
 
-  // Try fetching a URL with all proxy fallbacks
-  async function tryFetch(target){
-    for(const proxy of proxies){
+  // ── Step 1: fetch YouTube page via CORS proxy to get the signed caption URL ──
+  async function getSignedCaptionUrl(){
+    const pageUrl=`https://www.youtube.com/watch?v=${vid}`;
+    const proxyUrls=[
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(pageUrl)}`,
+      `https://corsproxy.io/?${pageUrl}`,
+    ];
+    for(const url of proxyUrls){
       try{
-        const r=await fetch(makeUrl(proxy,target),{signal:AbortSignal.timeout(6000)});
-        if(r.ok){const d=await r.json();const s=parseYT(d);if(s&&s.length)return s;}
-      }catch{}
+        const r=await fetch(url,{signal:AbortSignal.timeout(12000)});
+        if(!r.ok)continue;
+        const html=await r.text();
+        // Find captionTracks array in the page HTML
+        const idx=html.indexOf('"captionTracks":');
+        if(idx===-1)continue;
+        // Extract the JSON array via bracket matching
+        let depth=0,start=-1,end=-1;
+        for(let i=idx+16;i<html.length;i++){
+          if(html[i]==='['&&start===-1){start=i;depth=1;}
+          else if(start!==-1){
+            if(html[i]==='['||html[i]==='{')depth++;
+            else if(html[i]===']'||html[i]==='}'){if(--depth===0){end=i+1;break;}}
+          }
+        }
+        if(start===-1)continue;
+        const raw=html.slice(start,end).replace(/\\u0026/g,'&').replace(/\\"/g,'"');
+        const tracks=JSON.parse(raw);
+        // Prefer pt-BR, then pt, then any Portuguese
+        const ptTrack=tracks.find(t=>t.languageCode==='pt-BR')
+          ||tracks.find(t=>t.languageCode==='pt')
+          ||tracks.find(t=>t.languageCode?.startsWith('pt'));
+        if(ptTrack?.baseUrl)return{baseUrl:ptTrack.baseUrl,translatable:ptTrack.isTranslatable};
+      }catch(e){console.warn('caption page fetch error:',e);}
     }
     return null;
   }
 
-  // Check if text has Chinese characters
-  const isChinese=t=>/[\u4e00-\u9fa5]/.test(t||'');
-
-  // 1. Fetch Portuguese subtitles
-  let ptLang=null;
-  for(const lang of langTags){
-    subs=await tryFetch(`https://www.youtube.com/api/timedtext?lang=${lang}&v=${vid}&fmt=json3`);
-    if(subs&&subs.length){ptLang=lang;break;}
+  // ── Step 2: fetch subtitle JSON from signed URL ──
+  async function fetchSubJson(url){
+    try{
+      const r=await fetch(url,{signal:AbortSignal.timeout(8000)});
+      if(r.ok)return await r.json();
+    }catch{}
+    return null;
   }
 
-  // 2. If we have PT subs, try to get Chinese from YouTube — NO AI needed
-  if(subs&&subs.length){
-    let zhSubs=null;
-    let zhSource='';
+  setAI(true,'⏳ 正在获取字幕...');
+  const captionInfo=await getSignedCaptionUrl();
+  let subs=null;
 
-    // 2a. YouTube tlang (built-in translation, same timestamps → easy merge)
-    for(const zlang of zhLangs){
-      const s=await tryFetch(`https://www.youtube.com/api/timedtext?lang=${ptLang}&v=${vid}&fmt=json3&tlang=${zlang}`);
-      if(s&&s.length&&isChinese(s[0]&&s[0].pt)){zhSubs=s;zhSource='YouTube自动翻译';break;}
-    }
+  if(captionInfo?.baseUrl){
+    // Fetch Portuguese subtitles
+    const ptJson=await fetchSubJson(captionInfo.baseUrl+'&fmt=json3');
+    subs=parseYT(ptJson);
 
-    // 2b. Directly uploaded Chinese subtitle track
-    if(!zhSubs){
-      for(const zlang of zhLangs){
-        const s=await tryFetch(`https://www.youtube.com/api/timedtext?lang=${zlang}&v=${vid}&fmt=json3`);
-        if(s&&s.length&&isChinese(s[0]&&s[0].pt)){zhSubs=s;zhSource='视频内置中文字幕';break;}
+    // Fetch Chinese translation if available
+    if(subs?.length&&captionInfo.translatable){
+      for(const zlang of['zh-Hans','zh-CN','zh']){
+        const zhJson=await fetchSubJson(captionInfo.baseUrl+`&fmt=json3&tlang=${zlang}`);
+        const zhSubs=parseYT(zhJson);
+        if(zhSubs?.length&&isChinese(zhSubs[0]?.pt)){
+          subs.forEach((sub,i)=>{if(zhSubs[i]&&isChinese(zhSubs[i].pt))sub.zh=zhSubs[i].pt;});
+          break;
+        }
       }
-      // Match by timestamp overlap (direct tracks may have different segmentation)
-      if(zhSubs){
-        subs.forEach(sub=>{
-          const match=zhSubs.find(z=>z.s<sub.e&&z.e>sub.s);
-          if(match)sub.zh=match.pt;
-        });
-      }
-    } else {
-      // tlang: same segment count, merge by index
-      subs.forEach((sub,i)=>{if(zhSubs[i]&&isChinese(zhSubs[i].pt))sub.zh=zhSubs[i].pt;});
     }
-
-    const hasZh=subs.some(s=>s.zh);
-    toast(hasZh
-      ?`✅ 已加载双语字幕（${zhSource}）`
-      :'✅ 已加载葡语字幕 — 点击「🌐 翻译字幕」添加中文','ok',4000);
   }
 
-  S.isDemo=!subs||!subs.length;
+  setAI(false);
+  S.isDemo=!subs?.length;
   if(S.isDemo){
     subs=demoSubs();
-    toast('⚠️ 演示字幕模式 — 字幕与视频不对应。点击「🌐 翻译字幕」可用 AI 翻译真实内容','in',7000);
+    toast('⚠️ 演示字幕 — 无法获取真实字幕，点「🌐 翻译字幕」可用AI翻译','in',6000);
+  }else{
+    const hasZh=subs.some(s=>s.zh);
+    toast(hasZh?'✅ 双语字幕已加载（葡语 + 中文）':'✅ 葡语字幕已加载 — 点「🌐 翻译字幕」添加中文','ok',4000);
   }
   S.subs=subs;
   const sg=S.segs[S.segIdx];if(sg)renderSubsForSeg(sg);
@@ -1334,8 +1352,7 @@ ${txt}
 }
 
 async function callGemini(prompt,retries=2){
-  const models=['gemini-2.0-flash-lite','gemini-2.0-flash','gemini-1.5-flash'];
-  const model=S.geminiModel||models[0];
+  const model=S.geminiModel||'gemini-2.0-flash-lite';
   const url=`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${S.apiKey}`;
   const r=await fetch(url,{
     method:'POST',
@@ -1560,6 +1577,7 @@ function setupEvents(){
     S.segLen=parseInt($('set-seglen').value)||270;
     S.lang=$('set-lang').value;
     S.rate=parseFloat($('set-spd').value)||1;
+    S.geminiModel=$('set-model').value;
     $('btn-spd').textContent=S.rate+'×';
     if(S.player)S.player.setPlaybackRate(S.rate);
     save();
