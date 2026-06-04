@@ -844,8 +844,28 @@ body::after{
     </div>
     <div class="modal-body" style="gap:14px">
       <div class="set-grp">
-        <label class="set-lbl">故事段长度（秒）<span style="font-weight:400;color:var(--c-text3);font-size:11px;margin-left:6px">如：270秒 = 4分30秒</span></label>
-        <input type="number" id="set-seglen" class="set-inp" min="30" max="900" step="10" value="270"/>
+        <label class="set-lbl">片段划分方式</label>
+        <select id="set-segmode" class="set-sel" onchange="document.getElementById('grp-seg-auto').classList.toggle('hidden', this.value==='custom');document.getElementById('grp-seg-custom').classList.toggle('hidden', this.value!=='custom')">
+          <option value="auto" selected>自动等分 (适合长视频)</option>
+          <option value="custom">指定精准片段 (适合复习单句)</option>
+        </select>
+      </div>
+      <div class="set-grp" id="grp-seg-auto">
+        <label class="set-lbl">每段长度（秒）<span style="font-weight:400;color:var(--c-text3);font-size:11px;margin-left:6px">270秒=4分30秒</span></label>
+        <input type="number" id="set-seglen" class="set-inp" min="10" max="1800" step="10" value="270"/>
+      </div>
+      <div class="set-grp hidden" id="grp-seg-custom">
+        <label class="set-lbl">精准范围 (分:秒)</label>
+        <div style="display:flex;align-items:center;gap:6px">
+          开始：
+          <input type="number" id="set-cs-m" class="set-inp" style="width:64px;padding:6px" min="0" placeholder="分" value="0"/>:
+          <input type="number" id="set-cs-s" class="set-inp" style="width:64px;padding:6px" min="0" max="59" placeholder="秒" value="0"/>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:6px">
+          结束：
+          <input type="number" id="set-ce-m" class="set-inp" style="width:64px;padding:6px" min="0" placeholder="分" value="4"/>:
+          <input type="number" id="set-ce-s" class="set-inp" style="width:64px;padding:6px" min="0" max="59" placeholder="秒" value="30"/>
+        </div>
       </div>
       <div class="set-grp">
         <label class="set-lbl">默认播放速度</label>
@@ -889,7 +909,7 @@ body::after{
 const S = {
   player:null, videoId:null, dur:0, now:0,
   playing:false, looping:true, rate:1,
-  segLen:270,
+  segMode:'auto', segLen:270, customStart:0, customEnd:270,
   segs:[], segIdx:0,
   subs:[], subIdx:-1,
   autoScroll:true, showPt:true, showZh:true,
@@ -920,7 +940,10 @@ function setAI(show, sub='', title='AI 分析中...'){
 function save(){
   localStorage.setItem('pl_key',S.apiKey);
   localStorage.setItem('pl_mats',JSON.stringify(S.materials));
-  localStorage.setItem('pl_set',JSON.stringify({segLen:S.segLen,lang:S.lang,rate:S.rate,model:S.geminiModel}));
+  localStorage.setItem('pl_set',JSON.stringify({
+    segMode:S.segMode, segLen:S.segLen, customStart:S.customStart, customEnd:S.customEnd,
+    lang:S.lang, rate:S.rate, model:S.geminiModel
+  }));
 }
 
 function load(){
@@ -933,13 +956,25 @@ function load(){
       // Migrate old minutes values (≤15) to seconds
       S.segLen=(s.segLen<=15)?s.segLen*60:s.segLen;
     }
+    if(s.segMode)S.segMode=s.segMode;
+    if(s.customStart!==undefined)S.customStart=s.customStart;
+    if(s.customEnd!==undefined)S.customEnd=s.customEnd;
     if(s.lang)S.lang=s.lang;
     if(s.rate)S.rate=s.rate;
     if(s.model)S.geminiModel=s.model;
     $('set-seglen').value=S.segLen;
+    $('set-segmode').value=S.segMode;
+    $('set-cs-m').value=Math.floor(S.customStart/60);
+    $('set-cs-s').value=Math.floor(S.customStart%60);
+    $('set-ce-m').value=Math.floor(S.customEnd/60);
+    $('set-ce-s').value=Math.floor(S.customEnd%60);
     $('set-lang').value=S.lang;
     $('set-spd').value=S.rate;
     $('set-model').value=S.geminiModel;
+    
+    // Trigger UI toggle
+    $('grp-seg-auto').classList.toggle('hidden', S.segMode==='custom');
+    $('grp-seg-custom').classList.toggle('hidden', S.segMode!=='custom');
   }catch{}
 }
 
@@ -1035,33 +1070,44 @@ function checkLoop(t){
 // SEGMENTS
 // ====================================================================
 function buildSegs(){
-  const slen=S.segLen,total=S.dur; // segLen is now in seconds
+  const total=S.dur;
   if(!total)return;
   S.segs=[];
-  for(let t=0,i=0;t<total;t+=slen,i++)
-    S.segs.push({s:t,e:Math.min(t+slen,total),label:`故事 ${i+1}`});
+  
+  if(S.segMode==='custom'){
+    const s = Math.max(0, S.customStart);
+    const e = Math.min(total, S.customEnd > s ? S.customEnd : total);
+    S.segs.push({s, e, label: '自定义'});
+  } else {
+    const slen=S.segLen;
+    for(let t=0,i=0;t<total;t+=slen,i++)
+      S.segs.push({s:t,e:Math.min(t+slen,total),label:`故事 ${i+1}`});
+  }
+  
+  renderSegList();
+  jumpTo(0);
+}
 
-  // Render buttons
+function renderSegList(){
   const list=$('seg-list');list.innerHTML='';
   $('seg-cnt').textContent=`共 ${S.segs.length} 段`;
   S.segs.forEach((sg,i)=>{
     const b=document.createElement('button');
-    b.className='seg-btn'+(i===0?' active':'');
+    b.className='seg-btn'+(i===S.segIdx?' active':'');
     b.innerHTML=`<span class="seg-name">${sg.label}</span><span class="seg-time">${fmt(sg.s)}–${fmt(sg.e)}</span>`;
     b.addEventListener('click',()=>jumpTo(i));
     list.appendChild(b);
   });
 
-  // Segment markers on progress bar
   const marks=$('seg-marks');marks.innerHTML='';
-  S.segs.slice(1).forEach(sg=>{
-    const m=document.createElement('div');
-    m.className='seg-mark';
-    m.style.left=((sg.s/total)*100)+'%';
-    marks.appendChild(m);
-  });
-
-  jumpTo(0);
+  if(S.segMode!=='custom'){
+    S.segs.slice(1).forEach(sg=>{
+      const m=document.createElement('div');
+      m.className='seg-mark';
+      m.style.left=((sg.s/S.dur)*100)+'%';
+      marks.appendChild(m);
+    });
+  }
 }
 
 function jumpTo(i){
@@ -1094,7 +1140,6 @@ function loadVideo(vid){
 async function fetchSubs(vid){
   const isChinese=t=>/[\u4e00-\u9fa5]/.test(t||'');
 
-  // ── Step 1: fetch YouTube page via CORS proxy to get the signed caption URL ──
   async function getSignedCaptionUrl(){
     const pageUrl=`https://www.youtube.com/watch?v=${vid}`;
     const proxyUrls=[
@@ -1106,10 +1151,8 @@ async function fetchSubs(vid){
         const r=await fetch(url,{signal:AbortSignal.timeout(12000)});
         if(!r.ok)continue;
         const html=await r.text();
-        // Find captionTracks array in the page HTML
         const idx=html.indexOf('"captionTracks":');
         if(idx===-1)continue;
-        // Extract the JSON array via bracket matching
         let depth=0,start=-1,end=-1;
         for(let i=idx+16;i<html.length;i++){
           if(html[i]==='['&&start===-1){start=i;depth=1;}
@@ -1121,7 +1164,6 @@ async function fetchSubs(vid){
         if(start===-1)continue;
         const raw=html.slice(start,end).replace(/\\u0026/g,'&').replace(/\\"/g,'"');
         const tracks=JSON.parse(raw);
-        // Prefer pt-BR, then pt, then any Portuguese
         const ptTrack=tracks.find(t=>t.languageCode==='pt-BR')
           ||tracks.find(t=>t.languageCode==='pt')
           ||tracks.find(t=>t.languageCode?.startsWith('pt'));
@@ -1131,7 +1173,6 @@ async function fetchSubs(vid){
     return null;
   }
 
-  // ── Step 2: fetch subtitle JSON from signed URL ──
   async function fetchSubJson(url){
     try{
       const r=await fetch(url,{signal:AbortSignal.timeout(8000)});
@@ -1145,11 +1186,9 @@ async function fetchSubs(vid){
   let subs=null;
 
   if(captionInfo?.baseUrl){
-    // Fetch Portuguese subtitles
     const ptJson=await fetchSubJson(captionInfo.baseUrl+'&fmt=json3');
     subs=parseYT(ptJson);
 
-    // Fetch Chinese translation if available
     if(subs?.length&&captionInfo.translatable){
       for(const zlang of['zh-Hans','zh-CN','zh']){
         const zhJson=await fetchSubJson(captionInfo.baseUrl+`&fmt=json3&tlang=${zlang}`);
@@ -1189,7 +1228,6 @@ function parseLocalSub(text) {
     const timeLine = lines[timeLineIdx];
     const ptLine = lines.slice(timeLineIdx+1).join('\n').trim();
     
-    // Parse time: 00:01:23,400 or 01:23.400
     const parseTime = (tStr) => {
       const parts = tStr.trim().replace(',', '.').split(':');
       let sec = 0;
@@ -1211,15 +1249,12 @@ $('inp-sub').addEventListener('change', async (e) => {
   if (!file) return;
   const text = await file.text();
   const newSubs = parseLocalSub(text);
-  e.target.value = ''; // reset
+  e.target.value = '';
   
   if(!newSubs.length) return toast('无法解析该字幕文件，请确认是 SRT/VTT 格式','er');
   
   const isChinese=t=>/[\u4e00-\u9fa5]/.test(t||'');
-  
-  // 强制替换当前字幕，以保证时间轴完全使用上传的文件
   newSubs.forEach(s => {
-    // 尝试拆分双语字幕（假设中葡换行）
     const lines = s.pt.split('\n');
     if(lines.length > 1) {
       const zhLines = lines.filter(l => isChinese(l));
@@ -1230,7 +1265,6 @@ $('inp-sub').addEventListener('change', async (e) => {
         return;
       }
     }
-    // 纯中文字幕
     if(isChinese(s.pt)) { s.zh = s.pt; s.pt = '---'; }
   });
   
@@ -1251,7 +1285,7 @@ async function translateSubs(){
   if(!segSubs.length){toast('此段暂无字幕','er');return;}
 
   setAI(true,'🌐 AI 翻译字幕中...');
-  const BATCH=20; // 每批最多20条，避免限流
+  const BATCH=20; 
   let totalCount=0;
   try{
     for(let i=0;i<segSubs.length;i+=BATCH){
@@ -1272,7 +1306,6 @@ ${lines}
       batch.forEach((sub,j)=>{
         if(translations[j]&&translations[j].trim()){sub.zh=translations[j].trim();totalCount++;}
       });
-      // Small delay between batches to avoid rate limiting
       if(i+BATCH<segSubs.length)await new Promise(res=>setTimeout(res,1500));
     }
     renderSubsForSeg(sg);
@@ -1431,7 +1464,6 @@ async function callGemini(prompt,retries=2){
   if(!r.ok){
     const e=await r.json();
     const msg=e.error?.message||`HTTP ${r.status}`;
-    // Retry on quota error with delay
     if(retries>0&&(r.status===429||msg.includes('quota')||msg.includes('limit'))){
       await new Promise(res=>setTimeout(res,4000));
       return callGemini(prompt,retries-1);
@@ -1569,7 +1601,6 @@ function cycleSpd(){
 // EVENTS
 // ====================================================================
 function setupEvents(){
-  // Load
   $('btn-go').addEventListener('click',()=>{
     const vid=extractId($('inp-url').value.trim());
     if(!vid){toast('请输入有效的 YouTube 链接','er');return;}
