@@ -891,6 +891,10 @@ body::after{
           <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
         </select>
       </div>
+      <div class="set-grp" style="border-top:1px solid var(--c-border);padding-top:14px;margin-top:6px;">
+        <label class="set-lbl">缓存管理</label>
+        <button class="btn btn-ghost" id="btn-clear-cache" style="color:var(--c-red);border-color:var(--c-red);font-size:13px;padding:6px 12px">🗑️ 清除当前视频的字幕缓存</button>
+      </div>
     </div>
     <div class="modal-ftr">
       <button class="btn btn-primary" id="btn-save-cfg">保存设置</button>
@@ -1005,6 +1009,7 @@ window.onYouTubeIframeAPIReady=function(){
 
 function initPlayer(videoId){
   if(!ytReady){pendingVid=videoId;return;}
+  localStorage.setItem('pl_last_vid', videoId);
   if(S.player){S.player.loadVideoById(videoId);return;}
   S.player=new YT.Player('yt-player',{
     videoId,
@@ -1181,6 +1186,21 @@ async function fetchSubs(vid){
     return null;
   }
 
+  // ── 0. Check local cache first ──
+  const cached = localStorage.getItem('pl_subs_' + vid);
+  if (cached) {
+    try {
+      const cachedSubs = JSON.parse(cached);
+      if (cachedSubs && cachedSubs.length) {
+        S.subs = cachedSubs;
+        S.isDemo = false;
+        toast('✅ 已从本地缓存加载字幕', 'ok');
+        const sg=S.segs[S.segIdx];if(sg)renderSubsForSeg(sg);
+        return;
+      }
+    } catch(e) {}
+  }
+
   setAI(true,'⏳ 正在获取字幕...', '系统加载中...');
   const captionInfo=await getSignedCaptionUrl();
   let subs=null;
@@ -1209,6 +1229,7 @@ async function fetchSubs(vid){
   }else{
     const hasZh=subs.some(s=>s.zh);
     toast(hasZh?'✅ 双语字幕已加载（葡语 + 中文）':'✅ 葡语字幕已加载 — 点「🌐 翻译字幕」添加中文','ok',4000);
+    localStorage.setItem('pl_subs_' + vid, JSON.stringify(subs));
   }
   S.subs=subs;
   const sg=S.segs[S.segIdx];if(sg)renderSubsForSeg(sg);
@@ -1272,6 +1293,7 @@ $('inp-sub').addEventListener('change', async (e) => {
   S.isDemo = false;
   toast(`✅ 成功导入并应用 ${newSubs.length} 条新时间轴`,'ok');
   
+  localStorage.setItem('pl_subs_' + S.videoId, JSON.stringify(S.subs));
   const sg=S.segs[S.segIdx];if(sg)renderSubsForSeg(sg);
 });
 
@@ -1310,6 +1332,7 @@ ${lines}
     }
     renderSubsForSeg(sg);
     toast(`✅ 已翻译 ${totalCount} 条字幕`,'ok');
+    localStorage.setItem('pl_subs_' + S.videoId, JSON.stringify(S.subs));
   }catch(e){
     toast('翻译失败：'+e.message,'er');
     if(totalCount>0){renderSubsForSeg(sg);}
@@ -1607,6 +1630,13 @@ function setupEvents(){
     loadVideo(vid);
   });
   $('inp-url').addEventListener('keydown',e=>{if(e.key==='Enter')$('btn-go').click();});
+  
+  // URL Persistence
+  const lastVid = localStorage.getItem('pl_last_vid');
+  if (lastVid) {
+    $('inp-url').value = 'https://www.youtube.com/watch?v=' + lastVid;
+  }
+  
   document.querySelectorAll('.hint-chip').forEach(b=>{
     b.addEventListener('click',()=>{$('inp-url').value=b.dataset.url;$('btn-go').click();});
   });
@@ -1674,7 +1704,10 @@ function setupEvents(){
   $('cfg-close').addEventListener('click',()=>$('cfg-modal').classList.add('hidden'));
   $('cfg-modal').addEventListener('click',e=>{if(e.target===$('cfg-modal'))$('cfg-modal').classList.add('hidden');});
   $('btn-save-cfg').addEventListener('click',()=>{
+    S.segMode=$('set-segmode').value;
     S.segLen=parseInt($('set-seglen').value)||270;
+    S.customStart=(parseInt($('set-cs-m').value)||0)*60 + (parseInt($('set-cs-s').value)||0);
+    S.customEnd=(parseInt($('set-ce-m').value)||0)*60 + (parseInt($('set-ce-s').value)||0);
     S.lang=$('set-lang').value;
     S.rate=parseFloat($('set-spd').value)||1;
     S.geminiModel=$('set-model').value;
@@ -1684,6 +1717,14 @@ function setupEvents(){
     $('cfg-modal').classList.add('hidden');
     toast('设置已保存','ok');
     if(S.dur)buildSegs();
+  });
+
+  $('btn-clear-cache').addEventListener('click',()=>{
+    if(!S.videoId){toast('请先加载一个视频','er');return;}
+    if(confirm('确定要清除当前视频的字幕缓存吗？下次加载将重新从 YouTube 获取。')){
+      localStorage.removeItem('pl_subs_' + S.videoId);
+      toast('🗑️ 缓存已清除，刷新页面生效','ok');
+    }
   });
 
   // Keyboard
