@@ -1077,8 +1077,8 @@ function loadVideo(vid){
 // ====================================================================
 async function fetchSubs(vid){
   let subs=null;
-  const langTags=['pt','pt-BR'];
-  // Try direct + CORS proxies
+  const langTags=['pt-BR','pt'];
+  const zhLangs=['zh-Hans','zh-CN','zh','zh-TW'];
   const makeUrl=(proxy,target)=>{
     if(!proxy)return target;
     if(proxy==='allorigins')return `https://api.allorigins.win/raw?url=${encodeURIComponent(target)}`;
@@ -1086,23 +1086,66 @@ async function fetchSubs(vid){
   };
   const proxies=['','https://corsproxy.io/?','allorigins'];
 
-  outer:
-  for(const lang of langTags){
-    const target=`https://www.youtube.com/api/timedtext?lang=${lang}&v=${vid}&fmt=json3`;
+  // Try fetching a URL with all proxy fallbacks
+  async function tryFetch(target){
     for(const proxy of proxies){
       try{
         const r=await fetch(makeUrl(proxy,target),{signal:AbortSignal.timeout(6000)});
-        if(r.ok){const d=await r.json();subs=parseYT(d);if(subs&&subs.length)break outer;}
+        if(r.ok){const d=await r.json();const s=parseYT(d);if(s&&s.length)return s;}
       }catch{}
     }
+    return null;
+  }
+
+  // Check if text has Chinese characters
+  const isChinese=t=>/[\u4e00-\u9fa5]/.test(t||'');
+
+  // 1. Fetch Portuguese subtitles
+  let ptLang=null;
+  for(const lang of langTags){
+    subs=await tryFetch(`https://www.youtube.com/api/timedtext?lang=${lang}&v=${vid}&fmt=json3`);
+    if(subs&&subs.length){ptLang=lang;break;}
+  }
+
+  // 2. If we have PT subs, try to get Chinese from YouTube — NO AI needed
+  if(subs&&subs.length){
+    let zhSubs=null;
+    let zhSource='';
+
+    // 2a. YouTube tlang (built-in translation, same timestamps → easy merge)
+    for(const zlang of zhLangs){
+      const s=await tryFetch(`https://www.youtube.com/api/timedtext?lang=${ptLang}&v=${vid}&fmt=json3&tlang=${zlang}`);
+      if(s&&s.length&&isChinese(s[0]&&s[0].pt)){zhSubs=s;zhSource='YouTube自动翻译';break;}
+    }
+
+    // 2b. Directly uploaded Chinese subtitle track
+    if(!zhSubs){
+      for(const zlang of zhLangs){
+        const s=await tryFetch(`https://www.youtube.com/api/timedtext?lang=${zlang}&v=${vid}&fmt=json3`);
+        if(s&&s.length&&isChinese(s[0]&&s[0].pt)){zhSubs=s;zhSource='视频内置中文字幕';break;}
+      }
+      // Match by timestamp overlap (direct tracks may have different segmentation)
+      if(zhSubs){
+        subs.forEach(sub=>{
+          const match=zhSubs.find(z=>z.s<sub.e&&z.e>sub.s);
+          if(match)sub.zh=match.pt;
+        });
+      }
+    } else {
+      // tlang: same segment count, merge by index
+      subs.forEach((sub,i)=>{if(zhSubs[i]&&isChinese(zhSubs[i].pt))sub.zh=zhSubs[i].pt;});
+    }
+
+    const hasZh=subs.some(s=>s.zh);
+    toast(hasZh
+      ?`✅ 已加载双语字幕（${zhSource}）`
+      :'✅ 已加载葡语字幕 — 点击「🌐 翻译字幕」添加中文','ok',4000);
   }
 
   S.isDemo=!subs||!subs.length;
   if(S.isDemo){
     subs=demoSubs();
     toast('⚠️ 演示字幕模式 — 字幕与视频不对应。点击「🌐 翻译字幕」可用 AI 翻译真实内容','in',7000);
-  } else if(subs.some(s=>!s.zh)){
-    toast('✅ 已加载真实字幕 — 点击「🌐 翻译字幕」添加中文翻译','in',5000);
   }
   S.subs=subs;
   const sg=S.segs[S.segIdx];if(sg)renderSubsForSeg(sg);
