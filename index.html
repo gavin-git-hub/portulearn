@@ -842,8 +842,8 @@ body::after{
     </div>
     <div class="modal-body" style="gap:14px">
       <div class="set-grp">
-        <label class="set-lbl">故事段长度（分钟）</label>
-        <input type="number" id="set-seglen" class="set-inp" min="1" max="15" value="5"/>
+        <label class="set-lbl">故事段长度（秒）<span style="font-weight:400;color:var(--c-text3);font-size:11px;margin-left:6px">如：270秒 = 4分30秒</span></label>
+        <input type="number" id="set-seglen" class="set-inp" min="30" max="900" step="10" value="270"/>
       </div>
       <div class="set-grp">
         <label class="set-lbl">默认播放速度</label>
@@ -879,7 +879,7 @@ body::after{
 const S = {
   player:null, videoId:null, dur:0, now:0,
   playing:false, looping:true, rate:1,
-  segLen:5,
+  segLen:270,
   segs:[], segIdx:0,
   subs:[], subIdx:-1,
   autoScroll:true, showPt:true, showZh:true,
@@ -918,7 +918,10 @@ function load(){
   try{const m=JSON.parse(localStorage.getItem('pl_mats')||'[]');S.materials=m;}catch{}
   try{
     const s=JSON.parse(localStorage.getItem('pl_set')||'{}');
-    if(s.segLen)S.segLen=s.segLen;
+    if(s.segLen){
+      // Migrate old minutes values (≤15) to seconds
+      S.segLen=(s.segLen<=15)?s.segLen*60:s.segLen;
+    }
     if(s.lang)S.lang=s.lang;
     if(s.rate)S.rate=s.rate;
     $('set-seglen').value=S.segLen;
@@ -1019,7 +1022,7 @@ function checkLoop(t){
 // SEGMENTS
 // ====================================================================
 function buildSegs(){
-  const slen=S.segLen*60,total=S.dur;
+  const slen=S.segLen,total=S.dur; // segLen is now in seconds
   if(!total)return;
   S.segs=[];
   for(let t=0,i=0;t<total;t+=slen,i++)
@@ -1554,7 +1557,7 @@ function setupEvents(){
   $('cfg-close').addEventListener('click',()=>$('cfg-modal').classList.add('hidden'));
   $('cfg-modal').addEventListener('click',e=>{if(e.target===$('cfg-modal'))$('cfg-modal').classList.add('hidden');});
   $('btn-save-cfg').addEventListener('click',()=>{
-    S.segLen=parseInt($('set-seglen').value)||5;
+    S.segLen=parseInt($('set-seglen').value)||270;
     S.lang=$('set-lang').value;
     S.rate=parseFloat($('set-spd').value)||1;
     $('btn-spd').textContent=S.rate+'×';
