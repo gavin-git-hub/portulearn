@@ -762,7 +762,10 @@ body::after{
         <label class="chk-lbl"><input type="checkbox" id="ck-scroll" checked/> 自动滚动</label>
         <label class="chk-lbl"><input type="checkbox" id="ck-pt" checked/> 葡语</label>
         <label class="chk-lbl"><input type="checkbox" id="ck-zh" checked/> 中文</label>
-        <button class="btn btn-ai btn-sm" id="btn-ai" style="margin-left:auto">✨ AI分析</button>
+        <div style="display:flex;gap:6px;margin-left:auto">
+          <button class="btn btn-ai btn-sm" id="btn-trans">🌐 翻译字幕</button>
+          <button class="btn btn-ai btn-sm" id="btn-ai">✨ AI分析</button>
+        </div>
       </div>
       <div class="sub-list" id="sub-list">
         <div class="sub-empty">
@@ -1074,22 +1077,72 @@ function loadVideo(vid){
 // ====================================================================
 async function fetchSubs(vid){
   let subs=null;
-  const urls=[
-    `https://www.youtube.com/api/timedtext?lang=pt&v=${vid}&fmt=json3`,
-    `https://www.youtube.com/api/timedtext?lang=pt-BR&v=${vid}&fmt=json3`,
-  ];
-  for(const url of urls){
-    try{
-      const r=await fetch(url,{signal:AbortSignal.timeout(5000)});
-      if(r.ok){const d=await r.json();subs=parseYT(d);if(subs&&subs.length)break;}
-    }catch{}
+  const langTags=['pt','pt-BR'];
+  // Try direct + CORS proxies
+  const makeUrl=(proxy,target)=>{
+    if(!proxy)return target;
+    if(proxy==='allorigins')return `https://api.allorigins.win/raw?url=${encodeURIComponent(target)}`;
+    return `${proxy}${target}`;
+  };
+  const proxies=['','https://corsproxy.io/?','allorigins'];
+
+  outer:
+  for(const lang of langTags){
+    const target=`https://www.youtube.com/api/timedtext?lang=${lang}&v=${vid}&fmt=json3`;
+    for(const proxy of proxies){
+      try{
+        const r=await fetch(makeUrl(proxy,target),{signal:AbortSignal.timeout(6000)});
+        if(r.ok){const d=await r.json();subs=parseYT(d);if(subs&&subs.length)break outer;}
+      }catch{}
+    }
   }
-  if(!subs||!subs.length){
+
+  S.isDemo=!subs||!subs.length;
+  if(S.isDemo){
     subs=demoSubs();
-    toast('演示字幕模式 — 真实字幕需字幕代理服务','in',5000);
+    toast('⚠️ 演示字幕模式 — 字幕与视频不对应。点击「🌐 翻译字幕」可用 AI 翻译真实内容','in',7000);
+  } else if(subs.some(s=>!s.zh)){
+    toast('✅ 已加载真实字幕 — 点击「🌐 翻译字幕」添加中文翻译','in',5000);
   }
   S.subs=subs;
   const sg=S.segs[S.segIdx];if(sg)renderSubsForSeg(sg);
+}
+
+// ====================================================================
+// AI SUBTITLE TRANSLATION
+// ====================================================================
+async function translateSubs(){
+  if(!S.apiKey){toast('请先填写 Gemini API Key','er');return;}
+  const sg=S.segs[S.segIdx];if(!sg)return;
+  // Get all subs for current segment (translate even if already have zh, to allow retranslation)
+  const segSubs=S.subs.filter(s=>s.e>sg.s&&s.s<sg.e&&s.pt);
+  if(!segSubs.length){toast('此段暂无字幕','er');return;}
+
+  setAI(true,'🌐 AI 翻译字幕中...');
+  // Build numbered list for Gemini
+  const lines=segSubs.map((s,i)=>`${i+1}. ${s.pt}`).join('\n');
+  const prompt=`你是葡萄牙语-中文翻译专家。请将以下巴西葡萄牙语字幕逐句翻译成简体中文。
+翻译要求：口语自然、简洁准确、保留语气。
+
+${lines}
+
+仅返回JSON数组格式，与原文一一对应（共${segSubs.length}条）：
+["译文1","译文2",...]`;
+
+  try{
+    const res=await callGemini(prompt);
+    const clean=res.replace(/```json?\n?/g,'').replace(/```/g,'').trim();
+    const translations=JSON.parse(clean);
+    let count=0;
+    segSubs.forEach((sub,i)=>{
+      if(translations[i]&&translations[i].trim()){sub.zh=translations[i].trim();count++;}
+    });
+    renderSubsForSeg(sg);
+    toast(`✅ 已翻译 ${count} 条字幕`,'ok');
+  }catch(e){
+    toast('翻译失败：'+e.message,'er');
+  }
+  setAI(false);
 }
 
 function parseYT(d){
@@ -1413,6 +1466,7 @@ function setupEvents(){
   $('ck-pt').addEventListener('change',e=>{S.showPt=e.target.checked;const sg=S.segs[S.segIdx];if(sg)renderSubsForSeg(sg);});
   $('ck-zh').addEventListener('change',e=>{S.showZh=e.target.checked;const sg=S.segs[S.segIdx];if(sg)renderSubsForSeg(sg);});
   $('btn-ai').addEventListener('click',runAI);
+  $('btn-trans').addEventListener('click',translateSubs);
 
   // Vocab export
   $('btn-exp').addEventListener('click',exportMats);
