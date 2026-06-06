@@ -332,24 +332,7 @@ body::after{
   color:var(--c-amber);border-color:rgba(245,158,11,0.2);
 }
 .spd-btn:hover{background:rgba(245,158,11,0.1);border-color:rgba(245,158,11,0.4)}
-.loop-chip{
-  display:flex;align-items:center;gap:6px;
-  font-size:12px;font-weight:500;
-  padding:5px 12px;border-radius:20px;
-  color:var(--c-text3);
-  border:1px solid transparent;
-  transition:all 180ms var(--ease);
-}
-.loop-chip.on{
-  color:var(--c-teal);background:var(--c-teal-dim);
-  border-color:rgba(45,212,168,0.25);
-}
-.loop-dot{
-  width:7px;height:7px;border-radius:50%;
-  background:currentColor;
-}
-.loop-chip.on .loop-dot{animation:blink 1.4s ease-in-out infinite}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+
 
 /* Story Bar */
 .story-card{
@@ -716,7 +699,6 @@ body::after{
 @media(max-width:600px){
   .hdr{padding:0 12px}
   #page-player{padding:calc(56.25vw + 100px) 8px 16px 8px;gap:8px}
-  .ctrl-row{flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;}
   .ctrl-card{padding:10px 12px;}
 }
 </style>
@@ -800,9 +782,7 @@ body::after{
           <button class="ic-btn" id="btn-next" title="下一段 [↓]">⏭</button>
           <button class="ic-btn" id="btn-rpl" title="重播本段 [R]">↺</button>
         </div>
-        <div class="loop-chip on" id="loop-chip">
-          <span class="loop-dot"></span>循环播放
-        </div>
+
         <div class="ctrl-grp">
           <button class="ic-btn spd-btn" id="btn-spd">1.0×</button>
           <button class="ic-btn on" id="btn-loop" title="切换循环 [L]">🔁</button>
@@ -1775,7 +1755,6 @@ function setupEvents(){
   $('btn-loop').addEventListener('click',()=>{
     S.looping=!S.looping;
     $('btn-loop').classList.toggle('on',S.looping);
-    $('loop-chip').classList.toggle('on',S.looping);
     toast(S.looping?'循环开启':'循环关闭','in',1500);
   });
   $('btn-home').addEventListener('click',()=>{
@@ -1862,7 +1841,6 @@ function setupEvents(){
 document.addEventListener('DOMContentLoaded',()=>{
   load();
   setupEvents();
-  $('loop-chip').classList.add('on');
   $('btn-loop').classList.add('on');
 });
 </script>
