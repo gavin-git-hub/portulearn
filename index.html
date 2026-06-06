@@ -242,17 +242,23 @@ body::after{
     height:auto;
   }
   .col-left{
-    display:contents; /* Make vid-wrap a direct child for sticky */
+    display:flex;
+    flex-direction:column;
+    height:auto;
+    flex:none;
   }
   .vid-wrap{
-    position:-webkit-sticky;
-    position:sticky;
-    top:56px; /* below header */
+    position:fixed;
+    top:56px;
+    left:0;
+    width:100%;
     z-index:90;
-    margin-left:-12px;
-    margin-right:-12px;
-    width:calc(100% + 24px);
+    margin:0;
     border-radius:0;
+    box-shadow:0 4px 12px rgba(0,0,0,0.5);
+  }
+  .ctrl-card{
+    margin-top:calc(56.25vw + 12px);
   }
   .story-card{flex:none;padding:10px}
   .col-right{
@@ -262,19 +268,14 @@ body::after{
   .tab-panel{height:auto;overflow:visible;}
   .sub-list{overflow:visible;}
   .sub-item{
-    scroll-margin-top:calc(56.25vw + 70px); /* Leave space for header + sticky video */
+    scroll-margin-top:calc(56.25vw + 70px);
   }
 }
 @media(max-width:600px){
   .hdr{padding:0 12px}
   #page-player{padding:0 8px 16px 8px;gap:8px}
-  .vid-wrap{
-    margin-left:-8px;
-    margin-right:-8px;
-    width:calc(100% + 16px);
-  }
   .ctrl-row{flex-wrap:wrap;justify-content:center}
-  .ctrl-card{padding:10px}
+  .ctrl-card{padding:10px;margin-top:calc(56.25vw + 8px);}
 }
 
 /* ── LEFT COLUMN ── */
