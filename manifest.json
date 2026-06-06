@@ -1,0 +1,15 @@
+{
+  "name": "PortuLearn",
+  "short_name": "PortuLearn",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#05080f",
+  "theme_color": "#05080f",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
