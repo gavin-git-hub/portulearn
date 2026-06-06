@@ -4,6 +4,8 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PortuLearn 🇧🇷</title>
+<link rel="icon" type="image/png" href="icon.png"/>
+<link rel="apple-touch-icon" href="icon.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
@@ -689,7 +691,7 @@ body::after{
 
     <div class="api-section">
       <div class="api-lbl">
-        🤖 Gemini API Key
+        🤖 API Key (Gemini 或 DeepSeek)
         <span class="api-sub">（AI词汇分析功能）</span>
       </div>
       <div class="api-row">
@@ -886,9 +888,15 @@ body::after{
       <div class="set-grp">
         <label class="set-lbl">AI 模型选择</label>
         <select id="set-model" class="set-sel">
-          <option value="gemini-3.1-pro">Gemini 3.1 Pro (更智能)</option>
-          <option value="gemini-2.0-flash-lite" selected>Gemini 2.0 Flash Lite (更快,额度多)</option>
-          <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+          <optgroup label="Google Gemini">
+            <option value="gemini-3.1-pro">Gemini 3.1 Pro (更智能)</option>
+            <option value="gemini-2.0-flash-lite" selected>Gemini 2.0 Flash Lite (更快,额度多)</option>
+            <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+          </optgroup>
+          <optgroup label="DeepSeek">
+            <option value="deepseek-chat">DeepSeek Chat (V3)</option>
+            <option value="deepseek-reasoner">DeepSeek Reasoner (R1)</option>
+          </optgroup>
         </select>
       </div>
       <div class="set-grp" style="border-top:1px solid var(--c-border);padding-top:14px;margin-top:6px;">
@@ -1301,7 +1309,7 @@ $('inp-sub').addEventListener('change', async (e) => {
 // AI SUBTITLE TRANSLATION
 // ====================================================================
 async function translateSubs(){
-  if(!S.apiKey){toast('请先填写 Gemini API Key','er');return;}
+  if(!S.apiKey){toast('请先填写 API Key','er');return;}
   const sg=S.segs[S.segIdx];if(!sg)return;
   const segSubs=S.subs.filter(s=>s.e>sg.s&&s.s<sg.e&&s.pt);
   if(!segSubs.length){toast('此段暂无字幕','er');return;}
@@ -1322,7 +1330,7 @@ ${lines}
 ["译文1","译文2",...]`;
 
       setAI(true,`🌐 翻译中 ${i+1}–${Math.min(i+BATCH,segSubs.length)} / ${segSubs.length}...`);
-      const res=await callGemini(prompt);
+      const res=await callAI(prompt);
       const clean=res.replace(/```json?\n?/g,'').replace(/```/g,'').trim();
       const translations=JSON.parse(clean);
       batch.forEach((sub,j)=>{
@@ -1436,13 +1444,17 @@ function updateSubHL(t){
 // GEMINI AI
 // ====================================================================
 async function runAI(){
-  if(!S.apiKey){toast('请先填写 Gemini API Key','er');return;}
+  if(!S.apiKey){toast('请先填写 API Key','er');return;}
   const sg=S.segs[S.segIdx];if(!sg)return;
   const subs=S.subs.filter(s=>s.e>sg.s&&s.s<sg.e);
   if(!subs.length){toast('此段无字幕','er');return;}
 
   setAI(true,'分析词汇和句型...');
-  const txt=subs.map(s=>s.pt).join('\n');
+  const txt=subs.map(s=>{
+    if(s.pt!=='---'&&s.zh)return `[葡语] ${s.pt}\n[中文] ${s.zh}`;
+    if(s.pt!=='---')return s.pt;
+    return `[中文] ${s.zh}`;
+  }).join('\n\n');
   const langNote=S.lang==='zh'?'用中文解释':'explain in English';
 
   const prompt=`以下是巴西葡萄牙语儿童视频字幕（${langNote}）：
@@ -1459,8 +1471,8 @@ ${txt}
 {"vocab":[...],"bilingual":[...]}`;
 
   try{
-    setAI(true,'调用 Gemini API...');
-    const res=await callGemini(prompt);
+    setAI(true,'调用 AI API...');
+    const res=await callAI(prompt);
     const clean=res.replace(/```json?\n?/g,'').replace(/```/g,'').trim();
     const data=JSON.parse(clean);
     const mat={label:sg.label,vid:S.videoId,ts:new Date().toISOString(),vocab:data.vocab||[],bilingual:data.bilingual||[]};
@@ -1476,8 +1488,10 @@ ${txt}
   setAI(false);
 }
 
-async function callGemini(prompt,retries=2){
+async function callAI(prompt,retries=2){
   const model=S.geminiModel||'gemini-2.0-flash-lite';
+  if(model.startsWith('deepseek')) return await callDeepSeekAPI(model,prompt,retries);
+
   const url=`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${S.apiKey}`;
   const r=await fetch(url,{
     method:'POST',
@@ -1489,12 +1503,42 @@ async function callGemini(prompt,retries=2){
     const msg=e.error?.message||`HTTP ${r.status}`;
     if(retries>0&&(r.status===429||msg.includes('quota')||msg.includes('limit'))){
       await new Promise(res=>setTimeout(res,4000));
-      return callGemini(prompt,retries-1);
+      return callAI(prompt,retries-1);
     }
     throw new Error(msg);
   }
   const d=await r.json();
   return d.candidates?.[0]?.content?.parts?.[0]?.text||'';
+}
+
+async function callDeepSeekAPI(model,prompt,retries=2){
+  const url='https://api.deepseek.com/chat/completions';
+  const r=await fetch(url,{
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'Authorization':`Bearer ${S.apiKey}`
+    },
+    body:JSON.stringify({
+      model:model,
+      messages:[{role:'user',content:prompt}],
+      temperature:0.3,
+      response_format:{type:'json_object'}
+    }),
+  });
+  if(!r.ok){
+    const e=await r.json();
+    const msg=e.error?.message||`HTTP ${r.status}`;
+    if(retries>0&&(r.status===429||msg.includes('quota')||msg.includes('limit')||msg.includes('balance'))){
+      await new Promise(res=>setTimeout(res,4000));
+      return callDeepSeekAPI(model,prompt,retries-1);
+    }
+    throw new Error(msg);
+  }
+  const d=await r.json();
+  let content=d.choices?.[0]?.message?.content||'';
+  content=content.replace(/<think>[\s\S]*?<\/think>/g,'');
+  return content;
 }
 
 // ====================================================================
