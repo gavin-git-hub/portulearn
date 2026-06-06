@@ -48,7 +48,7 @@ body{
   color:var(--c-text);
   min-height:100vh;
   -webkit-font-smoothing:antialiased;
-  overflow-x:hidden;
+  overflow-x:clip;
 }
 body::before{
   content:'';
@@ -245,6 +245,7 @@ body::after{
     display:contents; /* Make vid-wrap a direct child for sticky */
   }
   .vid-wrap{
+    position:-webkit-sticky;
     position:sticky;
     top:56px; /* below header */
     z-index:90;
