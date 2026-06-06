@@ -225,12 +225,23 @@ body::after{
   grid-template-columns:1fr 360px;
   gap:12px;
   height:calc(100vh - 56px);
+  height:calc(100dvh - 56px);
   padding:12px;
   max-width:1700px;
   margin:0 auto;
 }
 @media(max-width:1100px){
-  #page-player{grid-template-columns:1fr;height:auto}
+  #page-player{
+    grid-template-columns:1fr;
+    grid-template-rows:auto minmax(0,1fr);
+  }
+  .col-left{height:auto;flex:none}
+  .story-card{flex:none;padding:10px}
+}
+@media(max-width:600px){
+  #page-player{padding:8px;gap:8px}
+  .ctrl-row{flex-wrap:wrap;justify-content:center}
+  .ctrl-card{padding:10px}
 }
 
 /* ── LEFT COLUMN ── */
